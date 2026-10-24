@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beef Finder</title>
+<style>
+  :root {
+    --bg: #1b0f0c;
+    --panel: #2a1713;
+    --panel2: #34201a;
+    --ink: #f6e9df;
+    --muted: #c4a99a;
+    --accent: #e0523a;
+    --accent2: #f2b36b;
+    --line: #4a2e25;
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #fbf3ec; --panel: #fff; --panel2: #f6e7da;
+      --ink: #2a1713; --muted: #7d5f52; --accent: #c23b22; --accent2: #b9722a; --line: #e6d2c3;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header { padding: 28px 16px 8px; max-width: 760px; margin: 0 auto; }
+  h1 { margin: 0; font-size: 2rem; letter-spacing: -0.02em; }
+  h1 span { color: var(--accent); }
+  .tag { color: var(--muted); margin: 4px 0 0; }
+  main { max-width: 760px; margin: 0 auto; padding: 8px 16px 64px; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; align-items: center; }
+  button, .btn {
+    background: var(--accent); color: #fff; border: 0; border-radius: 999px;
+    padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { color: var(--muted); font-size: .9rem; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    margin: 14px 0; overflow: hidden;
+  }
+  .card-top { display: flex; gap: 14px; padding: 14px; }
+  .thumb {
+    width: 96px; height: 96px; flex: none; border-radius: 10px; overflow: hidden;
+    background: var(--panel2); border: 1px solid var(--line);
+  }
+  .thumb img, .thumb svg { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .meta h2 { margin: 0; font-size: 1.15rem; }
+  .meta .town { color: var(--muted); font-size: .9rem; }
+  .dist { color: var(--accent2); font-weight: 700; }
+  .blurb { padding: 0 14px 12px; margin: 0; }
+  details { border-top: 1px solid var(--line); padding: 10px 14px; }
+  summary { cursor: pointer; font-weight: 600; color: var(--accent2); }
+  .deep p { margin: 8px 0; }
+  .todo { color: var(--muted); font-style: italic; }
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin: 10px 0; }
+  .gallery figure { margin: 0; background: var(--panel2); border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+  .gallery img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+  .gallery figcaption { font-size: .8rem; padding: 6px 8px; color: var(--muted); }
+  .links a { color: var(--accent2); margin-right: 12px; font-size: .9rem; }
+  form.add { display: grid; gap: 8px; margin-top: 10px; }
+  form.add input[type=text], form.add textarea {
+    width: 100%; padding: 10px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--panel2); color: var(--ink); font: inherit;
+  }
+  form.add label { font-size: .85rem; color: var(--muted); }
+  .rules { font-size: .85rem; color: var(--muted); }
+  footer { color: var(--muted); font-size: .85rem; text-align: center; padding: 24px 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Beef <span>Finder</span></h1>
+  <p class="tag">Find the nearest North Shore roast beef. Judge it by the meat.</p>
+</header>
+<main>
+  <div class="bar">
+    <button id="locate">Find beef near me</button>
+    <button id="addPlace" class="ghost">Add a place</button>
+    <span id="status">Showing all places A to Z. Tap the button to sort by distance.</span>
+  </div>
+  <div id="addPlaceBox" hidden>
+    <div class="card" style="padding:14px">
+      <strong>Add a roast beef place</strong>
+      <form class="add" id="placeForm">
+        <label>Name <input type="text" name="name" required maxlength="80"></label>
+        <label>Town <input type="text" name="town" required maxlength="60"></label>
+        <label>Latitude, longitude (optional, for distance sorting)
+          <input type="text" name="coords" placeholder="42.4143, -70.9925"></label>
+        <label>What is their roast beef like?
+          <textarea name="blurb" rows="3" maxlength="600" required></textarea></label>
+        <button type="submit">Add place</button>
+      </form>
+    </div>
+  </div>
+  <div id="list"></div>
+</main>
+<footer>Beef Finder is a work in progress. Contributions are saved in your browser until the shared backend exists.</footer>
+
+<script>
+/* ---------- Seed data ----------
+   Coordinates are approximate town-level or street-level points.
+   TODO(verify): confirm exact addresses/coordinates and replace starter notes with real tasting notes.
+*/
+const SEED = [
+  {
+    id: "kellys-revere", name: "Kelly's Roast Beef", town: "Revere Beach",
+    lat: 42.4143, lng: -70.9925,
+    blurb: "The one the whole region argues about. Revere Beach institution, often credited with popularizing the North Shore roast beef sandwich.",
+    deep: [
+      "The style: thin-sliced, rare-ish roast beef piled onto a soft, slightly sweet roll, the kind of sandwich you eat standing up or on the seawall.",
+      "The signature order is the 'three-way': roast beef with mayo, barbecue sauce, and cheese. Think of it as the cheeseburger of the North Shore, a sandwich where the toppings are part of the identity rather than garnish.",
+      "<span class='todo'>Starter notes only. Add tasting notes on meat texture, roll, and sauce ratio.</span>"
+    ],
+    links: [["Search on Google Maps", "https://www.google.com/maps/search/?api=1&query=Kelly%27s+Roast+Beef+Revere+Beach"]]
+  },
+  {
+    id: "kellys-saugus", name: "Kelly's Roast Beef", town: "Saugus",
+    lat: 42.4640, lng: -71.0100,
+    blurb: "Kelly's family tree extends inland. Same roast beef tradition, different parking situation.",
+    deep: [
+      "Part of the Kelly's family of shops. A good case study in whether the sandwich travels: same name, different room, same expectations.",
+      "<span class='todo'>Starter notes only. Add comparison against the Revere Beach original.</span>"
+    ],
+    links: [["Search on Google Maps", "https://www.google.com/maps/search/?api=1&query=Kelly%27s+Roast+Beef+Saugus"]]
+  },
+  {
+    id: "bill-and-bobs-salem", name: "Bill & Bob's Roast Beef", town: "Salem",
+    lat: 42.5195, lng: -70.8967,
+    blurb: "Salem's roast beef counter, a regular stop for locals who want the sandwich without the beach.",
+    deep: [
+      "A classic North Shore roast beef joint: order at the counter, pick your sauce, get a sandwich that is basically a small meat mountain on a roll.",
+      "<span class='todo'>Starter notes only. Add notes on beef cut, slicing, and whether the BBQ sauce leans sweet or tangy.</span>"
+    ],
+    links: [["Search on Google Maps", "https://www.google.com/maps/search/?api=1&query=Bill+and+Bob%27s+Roast+Beef+Salem+MA"]]
+  },
+  {
+    id: "nicks-beverly", name: "Nick's Roast Beef", town: "Beverly",
+    lat: 42.5483, lng: -70.8800,
+    blurb: "Beverly's roast beef landmark, with a loyal following and strong opinions attached.",
+    deep: [
+      "Often named in the same breath as Kelly's when people draw up the North Shore canon. Treat it like a regional dialect: close to its neighbors, but you can hear the difference.",
+      "<span class='todo'>Starter notes only. Add notes on the roll, the meat-to-bread ratio, and the best order.</span>"
+    ],
+    links: [["Search on Google Maps", "https://www.google.com/maps/search/?api=1&query=Nick%27s+Roast+Beef+Beverly+MA"]]
+  }
+];
+
+/* ---------- Storage (local only for now) ---------- */
+const LS_PLACES = "beeffinder.places.v1";
+const LS_PHOTOS = "beeffinder.photos.v1";
+function load(key, fallback) {
+  try { const v = JSON.parse(localStorage.getItem(key)); return v ?? fallback; } catch { return fallback; }
+}
+function save(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); return true; } catch { return false; }
+}
+let userPlaces = load(LS_PLACES, []);
+let photos = load(LS_PHOTOS, {});   // { placeId: [{src, note, ts}] }
+let origin = null;
+
+/* ---------- Helpers ---------- */
+const $ = (s, el = document) => el.querySelector(s);
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+function miles(a, b) {
+  const R = 3958.8, rad = x => x * Math.PI / 180;
+  const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat/2)**2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function allPlaces() { return [...SEED, ...userPlaces]; }
+
+/* Placeholder "close-up" art: abstract meat grain, stands in until real photos are contributed. */
+function placeholderSvg(seedStr) {
+  let h = 0; for (const c of seedStr) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const rnd = () => (h = (h * 1664525 + 1013904223) >>> 0) / 4294967296;
+  let lines = "";
+  for (let i = 0; i < 14; i++) {
+    const y = 6 + i * 7 + rnd() * 3;
+    const hue = 8 + Math.floor(rnd() * 14);
+    const light = 28 + Math.floor(rnd() * 22);
+    lines += `<path d="M0 ${y} C 25 ${y - 8 + rnd()*16}, 60 ${y - 8 + rnd()*16}, 100 ${y + rnd()*4}" stroke="hsl(${hue} 55% ${light}%)" stroke-width="${3 + rnd()*5}" fill="none" stroke-linecap="round"/>`;
+  }
+  return `<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" fill="hsl(10 45% 22%)"/>${lines}</svg>`;
+}
+
+/* Downscale uploads so local storage doesn't overflow. */
+function fileToDataUrl(file, maxSide = 900, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      resolve(c.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Could not read image")); };
+    img.src = url;
+  });
+}
+
+/* ---------- Rendering ---------- */
+function render() {
+  let places = allPlaces().map(p => ({
+    ...p, d: origin && typeof p.lat === "number" ? miles(origin, p) : null
+  }));
+  places.sort((a, b) => {
+    if (origin) {
+      if (a.d == null && b.d == null) return a.name.localeCompare(b.name);
+      if (a.d == null) return 1;
+      if (b.d == null) return -1;
+      return a.d - b.d;
+    }
+    return a.name.localeCompare(b.name) || a.town.localeCompare(b.town);
+  });
+
+  $("#list").innerHTML = places.map(p => {
+    const ph = photos[p.id] || [];
+    const thumb = ph.length
+      ? `<img src="${ph[0].src}" alt="Close-up of the roast beef at ${esc(p.name)}">`
+      : placeholderSvg(p.id);
+    const deep = (p.deep || []).map(t => `<p>${t}</p>`).join("") ||
+      "<p class='todo'>No deep dive yet. Be the first to write one.</p>";
+    const links = (p.links || []).map(([t, u]) => `<a href="${u}" target="_blank" rel="noopener">${esc(t)}</a>`).join("");
+    const gallery = ph.length
+      ? `<div class="gallery">${ph.map(x => `<figure><img src="${x.src}" alt=""><figcaption>${esc(x.note || "")}</figcaption></figure>`).join("")}</div>`
+      : `<p class="todo">No close-ups yet.</p>`;
+    return `
+    <article class="card" data-id="${p.id}">
+      <div class="card-top">
+        <div class="thumb">${thumb}</div>
+        <div class="meta">
+          <h2>${esc(p.name)}</h2>
+          <div class="town">${esc(p.town)}${p.d != null ? ` · <span class="dist">${p.d.toFixed(1)} mi</span>` : ""}</div>
+        </div>
+      </div>
+      <p class="blurb">${esc(p.blurb)}</p>
+      <details>
+        <summary>Deep dive</summary>
+        <div class="deep">${deep}<div class="links">${links}</div></div>
+      </details>
+      <details>
+        <summary>Close-ups (${ph.length}) and add yours</summary>
+        ${gallery}
+        <form class="add photoForm" data-id="${p.id}">
+          <label>Photo: a tight, weird close-up of the meat
+            <input type="file" name="photo" accept="image/*" required></label>
+          <label>A line about this sandwich
+            <textarea name="note" rows="2" maxlength="300" required></textarea></label>
+          <button type="submit">Add to the library</button>
+          <div class="rules">Your own photos only. Tight crop on the beef: grain, edges, juices.</div>
+        </form>
+      </details>
+    </article>`;
+  }).join("");
+}
+
+/* ---------- Events ---------- */
+$("#locate").addEventListener("click", () => {
+  const status = $("#status"), btn = $("#locate");
+  if (!navigator.geolocation) { status.textContent = "This browser has no GPS support."; return; }
+  btn.disabled = true; status.textContent = "Locating you...";
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      origin = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      status.textContent = "Sorted nearest first.";
+      btn.disabled = false; btn.textContent = "Refresh my location";
+      render();
+    },
+    err => {
+      btn.disabled = false;
+      status.textContent = err.code === 1
+        ? "Location permission was denied. Allow it in your browser settings to sort by distance."
+        : "Could not get your location. Try again.";
+    },
+    { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 }
+  );
+});
+
+$("#addPlace").addEventListener("click", () => { const b = $("#addPlaceBox"); b.hidden = !b.hidden; });
+
+$("#placeForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const f = new FormData(e.target);
+  const name = f.get("name").trim(), town = f.get("town").trim();
+  let lat, lng;
+  const m = String(f.get("coords") || "").match(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/);
+  if (m) { lat = parseFloat(m[1]); lng = parseFloat(m[2]); }
+  const id = "u-" + name.toLowerCase().replace(/[^a-z0-9]+/g, "-") + "-" + Date.now().toString(36);
+  userPlaces.push({
+    id, name, town, lat, lng, blurb: f.get("blurb").trim(),
+    deep: [], user: true,
+    links: [["Search on Google Maps", "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(name + " " + town)]]
+  });
+  save(LS_PLACES, userPlaces);
+  e.target.reset(); $("#addPlaceBox").hidden = true;
+  render();
+});
+
+$("#list").addEventListener("submit", async e => {
+  if (!e.target.classList.contains("photoForm")) return;
+  e.preventDefault();
+  const form = e.target, id = form.dataset.id, btn = $("button", form);
+  const file = form.photo.files[0];
+  if (!file) return;
+  btn.disabled = true; btn.textContent = "Saving...";
+  try {
+    const src = await fileToDataUrl(file);
+    photos[id] = [{ src, note: form.note.value.trim(), ts: Date.now() }, ...(photos[id] || [])];
+    if (!save(LS_PHOTOS, photos)) {
+      photos[id].shift();
+      alert("Browser storage is full. This will be fixed once photos upload to a shared backend.");
+    }
+  } catch (err) {
+    alert(err.message);
+  }
+  const openId = id;
+  render();
+  const card = document.querySelector(`[data-id="${openId}"]`);
+  if (card) card.querySelectorAll("details")[1].open = true;
+});
+
+render();
+</script>
+</body>
+</html>
