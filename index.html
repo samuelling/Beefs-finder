@@ -71,6 +71,26 @@
   form.add label { font-size: .85rem; color: var(--muted); }
   .rules { font-size: .85rem; color: var(--muted); }
   footer { color: var(--muted); font-size: .85rem; text-align: center; padding: 24px 16px; }
+
+  /* Hot/cold hunt panel */
+  #hunt {
+    position: sticky; top: 0; z-index: 10; margin: 0 -16px 12px; padding: 14px 16px;
+    background: var(--panel); border-bottom: 2px solid var(--line);
+  }
+  #hunt[hidden] { display: none; }
+  .hunt-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .hunt-target { font-weight: 700; }
+  .hunt-dist { font-size: 1.6rem; font-weight: 800; letter-spacing: -0.02em; }
+  .hunt-word { font-size: 2rem; font-weight: 900; letter-spacing: -0.02em; margin: 2px 0; transition: color .3s; }
+  .hunt-sub { color: var(--muted); font-size: .9rem; min-height: 1.3em; }
+  .thermo { height: 14px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--line); overflow: hidden; margin: 8px 0; }
+  .thermo > div { height: 100%; width: 0; border-radius: 999px; transition: width .5s, background-color .5s; }
+  .hunt-actions { display: flex; gap: 8px; margin-top: 8px; }
+  .hunt-actions button { padding: 6px 14px; font-size: .9rem; }
+  .hunt-found { animation: pulse 1s ease-in-out 3; }
+  @keyframes pulse { 50% { transform: scale(1.04); } }
+  @media (prefers-reduced-motion: reduce) { .hunt-found { animation: none; } .thermo > div { transition: none; } }
+  .huntBtn { margin-top: 8px; padding: 6px 14px; font-size: .85rem; }
 </style>
 </head>
 <body>
@@ -84,6 +104,16 @@
     <button id="addPlace" class="ghost">Add a place</button>
     <span id="status">Showing all places A to Z. Tap the button to sort by distance.</span>
   </div>
+  <section id="hunt" hidden aria-live="polite">
+    <div class="hunt-head">
+      <span class="hunt-target" id="huntTarget"></span>
+      <span class="hunt-dist" id="huntDist"></span>
+    </div>
+    <div class="hunt-word" id="huntWord">Warming up...</div>
+    <div class="thermo"><div id="huntBar"></div></div>
+    <div class="hunt-sub" id="huntSub"></div>
+    <div class="hunt-actions"><button id="huntStop" class="ghost">Stop hunting</button></div>
+  </section>
   <div id="addPlaceBox" hidden>
     <div class="card" style="padding:14px">
       <strong>Add a roast beef place</strong>
@@ -240,6 +270,7 @@ function render() {
         <div class="meta">
           <h2>${esc(p.name)}</h2>
           <div class="town">${esc(p.town)}${p.d != null ? ` · <span class="dist">${p.d.toFixed(1)} mi</span>` : ""}</div>
+          ${typeof p.lat === "number" ? `<button class="huntBtn" data-hunt="${p.id}">Hunt this beef</button>` : ""}
         </div>
       </div>
       <p class="blurb">${esc(p.blurb)}</p>
@@ -327,6 +358,125 @@ $("#list").addEventListener("submit", async e => {
   const card = document.querySelector(`[data-id="${openId}"]`);
   if (card) card.querySelectorAll("details")[1].open = true;
 });
+
+/* ---------- Hot / cold hunt ----------
+   Like the kids' game: you can't see the target, only whether each stretch of walking
+   moved you closer. We compare against a reference reading and only call a verdict once
+   you've moved further than the GPS wobble, so standing still doesn't flicker hot/cold. */
+const hunt = { id: null, target: null, watchId: null, startM: null, refM: null, trend: null, found: false };
+const FT_PER_M = 3.28084;
+
+function metersBetween(a, b) { return miles(a, b) * 1609.344; }
+function fmtDist(m) {
+  const ft = m * FT_PER_M;
+  return ft < 600 ? `${Math.round(ft / 10) * 10} ft` : `${(m / 1609.344).toFixed(m < 16093 ? 2 : 1)} mi`;
+}
+function tier(m) {
+  const mi = m / 1609.344;
+  if (mi > 10) return ["Frozen", 215];
+  if (mi > 5)  return ["Ice cold", 205];
+  if (mi > 2)  return ["Cold", 195];
+  if (mi > 1)  return ["Cool", 170];
+  if (mi > 0.5) return ["Warm", 55];
+  if (mi > 0.2) return ["Hot", 28];
+  if (mi > 0.05) return ["Very hot", 12];
+  return ["Scorching", 2];
+}
+
+function startHunt(id) {
+  const place = allPlaces().find(p => p.id === id);
+  if (!place || typeof place.lat !== "number") return;
+  if (!navigator.geolocation) { $("#status").textContent = "This browser has no GPS support."; return; }
+  stopHunt(true);
+  Object.assign(hunt, { id, target: place, startM: null, refM: null, trend: null, found: false });
+  $("#hunt").hidden = false;
+  $("#huntTarget").textContent = place.name + " · " + place.town;
+  $("#huntDist").textContent = "";
+  $("#huntWord").textContent = "Finding you...";
+  $("#huntWord").style.color = "";
+  $("#huntWord").classList.remove("hunt-found");
+  $("#huntSub").textContent = "Waiting for a GPS fix.";
+  $("#huntBar").style.width = "0";
+  $("#hunt").scrollIntoView({ behavior: "smooth", block: "start" });
+  hunt.watchId = navigator.geolocation.watchPosition(onHuntPos, onHuntErr,
+    { enableHighAccuracy: true, maximumAge: 2000, timeout: 20000 });
+}
+
+function stopHunt(keepPanel) {
+  if (hunt.watchId != null) navigator.geolocation.clearWatch(hunt.watchId);
+  hunt.watchId = null;
+  if (!keepPanel) $("#hunt").hidden = true;
+}
+
+function onHuntErr(err) {
+  $("#huntWord").textContent = "No signal";
+  $("#huntSub").textContent = err.code === 1
+    ? "Location permission was denied. Allow it in your browser settings to hunt."
+    : "Can't get a GPS fix. Try stepping outside.";
+}
+
+function onHuntPos(pos) {
+  if (hunt.found) return;
+  const here = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+  const acc = pos.coords.accuracy || 50;
+  const d = metersBetween(here, hunt.target);
+  const word = $("#huntWord"), sub = $("#huntSub");
+
+  $("#huntDist").textContent = fmtDist(d);
+  if (hunt.startM == null) { hunt.startM = Math.max(d, 50); hunt.refM = d; }
+
+  /* Arrived: inside the target's fuzz or your own GPS error, whichever is bigger. */
+  if (d <= Math.max(30, Math.min(acc, 60))) {
+    hunt.found = true;
+    stopHunt(true);
+    word.textContent = "You found the beef!";
+    word.style.color = "hsl(2 80% 55%)";
+    word.classList.add("hunt-found");
+    sub.textContent = "Order a three-way. Then take a weird close-up.";
+    $("#huntBar").style.width = "100%";
+    $("#huntBar").style.backgroundColor = "hsl(2 80% 50%)";
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]);
+    return;
+  }
+
+  /* Progress bar and color follow absolute distance, so far-away stays blue. */
+  const [label, hue] = tier(d);
+  const pct = Math.max(4, Math.min(100, (1 - d / hunt.startM) * 100));
+  $("#huntBar").style.width = pct + "%";
+  $("#huntBar").style.backgroundColor = `hsl(${hue} 80% 52%)`;
+
+  if (acc > 100) {
+    sub.textContent = `GPS is fuzzy (±${Math.round(acc)} m). Verdicts will be shaky until it settles.`;
+  }
+
+  /* Verdict: only judge once the change beats the GPS wobble. */
+  const needed = Math.max(8, acc * 0.6);
+  const delta = hunt.refM - d;          // positive: you got closer
+  if (Math.abs(delta) >= needed) {
+    hunt.trend = delta > 0 ? "hotter" : "colder";
+    hunt.refM = d;
+    if (hunt.trend === "hotter" && navigator.vibrate) navigator.vibrate(30);
+  }
+  if (hunt.trend === "hotter") {
+    word.textContent = "Getting hotter";
+    word.style.color = `hsl(${Math.min(hue, 28)} 85% 55%)`;
+    if (acc <= 100) sub.textContent = `${label}. Keep going this way.`;
+  } else if (hunt.trend === "colder") {
+    word.textContent = "Getting colder";
+    word.style.color = "hsl(205 80% 58%)";
+    if (acc <= 100) sub.textContent = `${label}. You're drifting away. Try another direction.`;
+  } else {
+    word.textContent = label;
+    word.style.color = `hsl(${hue} 80% 55%)`;
+    if (acc <= 100) sub.textContent = "Walk a bit and I'll tell you hotter or colder.";
+  }
+}
+
+$("#list").addEventListener("click", e => {
+  const b = e.target.closest("[data-hunt]");
+  if (b) startHunt(b.dataset.hunt);
+});
+$("#huntStop").addEventListener("click", () => stopHunt(false));
 
 render();
 </script>
