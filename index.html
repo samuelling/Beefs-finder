@@ -110,7 +110,7 @@
 <body>
 <header>
   <h1>Beef <span>Finder</span></h1>
-  <p class="tag">Find the nearest North Shore roast beef. Judge it by the meat.</p>
+  <p class="tag">Find the nearest North Shore-style roast beef, from the North Shore to greater Boston. Judge it by the meat.</p>
 </header>
 <main>
   <div class="bar">
@@ -475,12 +475,13 @@ async function discover() {
     if (!origin) { origin = await getPos(); render(); }
     const { Place } = await googleReady();
     const { places } = await Place.searchByText({
-      textQuery: "roast beef sandwich", maxResultCount: 12,
+      textQuery: "roast beef sandwich", maxResultCount: 20,
       fields: ["id", "displayName", "formattedAddress", "rating", "userRatingCount", "googleMapsURI", "location"],
-      locationBias: { center: origin, radius: 25000 }
+      locationBias: { center: origin, radius: 40000 }   // about 25 miles: covers greater Boston
     });
     const known = new Set([...Object.values(gids), ...allPlaces().map(p => p.gid).filter(Boolean)]);
-    lastDiscover = places.filter(g => !known.has(g.id));
+    const dist = g => g.location ? miles(origin, { lat: g.location.lat(), lng: g.location.lng() }) : Infinity;
+    lastDiscover = places.filter(g => !known.has(g.id)).sort((a, b) => dist(a) - dist(b));
     box.hidden = false;
     box.innerHTML = (lastDiscover.length ? lastDiscover.map((g, i) => {
       const d = g.location ? miles(origin, { lat: g.location.lat(), lng: g.location.lng() }).toFixed(1) + " mi" : "";

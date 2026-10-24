@@ -1,6 +1,6 @@
 # Beef Finder
 
-Find the nearest North Shore roast beef sandwich, and judge it by a weird close-up of the meat.
+Find the nearest North Shore-style roast beef sandwich, from the North Shore to greater Boston, and judge it by a weird close-up of the meat.
 
 ## What works now
 - GPS lookup sorts the seeded places nearest first (haversine distance, runs in the browser).
@@ -25,7 +25,7 @@ Without a key the app works fine; the Google buttons just stay hidden.
 ## Next steps
 1. Shared backend for uploads (for example Supabase or Firebase: a table for places and notes, a bucket for photos).
 2. Moderation: a simple approve queue so open contributions stay on-topic.
-3. Verify addresses and expand the seed list: more of the North Shore, plus the Lynn, Peabody, Danvers and Saugus spots.
+3. Verify addresses and expand the seed list across the North Shore and greater Boston (Lynn, Peabody, Danvers, Saugus, Medford, Boston and beyond). "Discover more beef" searches about 25 miles around you, so it can find candidates anywhere in that range.
 4. Real deep dives: meat cut, slicing, roll, sauce ratio, the signature order.
 
 ## Run it
