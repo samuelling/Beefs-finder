@@ -92,6 +92,13 @@
   @media (prefers-reduced-motion: reduce) { .hunt-found { animation: none; } .thermo > div { transition: none; } }
   .huntBtn { margin-top: 8px; padding: 6px 14px; font-size: .85rem; }
 
+  /* Compass arrow */
+  .hunt-compass { display: flex; align-items: center; gap: 12px; margin: 4px 0; }
+  .hunt-compass[hidden] { display: none; }
+  #huntArrow { width: 56px; height: 56px; flex: none; color: var(--accent); transition: transform .15s linear; }
+  #huntDir { font-weight: 600; }
+  @media (prefers-reduced-motion: reduce) { #huntArrow { transition: none; } }
+
   /* Google Places info */
   .greview { margin: 10px 0; padding: 8px 12px; border-left: 3px solid var(--line); background: var(--panel2); border-radius: 0 10px 10px 0; font-size: .9rem; }
   .greview p { margin: 4px 0 0; }
@@ -118,6 +125,10 @@
       <span class="hunt-dist" id="huntDist"></span>
     </div>
     <div class="hunt-word" id="huntWord">Warming up...</div>
+    <div class="hunt-compass" id="huntCompass" hidden>
+      <svg id="huntArrow" viewBox="0 0 100 100" aria-hidden="true"><path d="M50 6 L78 70 L50 56 L22 70 Z" fill="currentColor"/></svg>
+      <div id="huntDir"></div>
+    </div>
     <div class="thermo"><div id="huntBar"></div></div>
     <div class="hunt-sub" id="huntSub"></div>
     <div class="hunt-actions"><button id="huntStop" class="ghost">Stop hunting</button></div>
@@ -525,12 +536,92 @@ function tier(m) {
   return ["Scorching", 2];
 }
 
+/* ---------- Compass ----------
+   GPS gives the bearing from you to the beef; the phone's sensors give the way you're facing.
+   The arrow points at (bearing minus heading), so it aims at the beef however you turn.
+   If the compass is unavailable or denied, it falls back to your GPS direction of travel
+   while walking, and otherwise shows a plain "head northeast" with north up. */
+const toRad = x => x * Math.PI / 180;
+let compassHeading = null, gpsHeading = null, compassToken = 0;
+
+function bearingTo(a, b) {
+  const dLng = toRad(b.lng - a.lng);
+  const y = Math.sin(dLng) * Math.cos(toRad(b.lat));
+  const x = Math.cos(toRad(a.lat)) * Math.sin(toRad(b.lat)) - Math.sin(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.cos(dLng);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+function cardinal(b) {
+  return ["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"][Math.round(b / 45) % 8];
+}
+/* Heading from Android-style absolute orientation. Flat in your hand, the top of the phone is
+   "forward"; held upright while walking, the back of the phone is. Use whichever points more
+   horizontally. */
+function eulerHeading(alpha, beta, gamma) {
+  const A = toRad(alpha || 0), B = toRad(beta || 0), G = toRad(gamma || 0);
+  const cA = Math.cos(A), sA = Math.sin(A), cB = Math.cos(B), sB = Math.sin(B), cG = Math.cos(G), sG = Math.sin(G);
+  const backX = -(cG * sA * sB + cA * sG), backY = -(sA * sG - cA * cG * sB);
+  const topX = -cB * sA, topY = cA * cB;
+  const [x, y] = Math.hypot(backX, backY) > Math.hypot(topX, topY) ? [backX, backY] : [topX, topY];
+  return (Math.atan2(x, y) * 180 / Math.PI + 360) % 360;
+}
+function smoothAngle(prev, next, k = 0.3) {
+  if (prev == null) return next;
+  const d = ((next - prev + 540) % 360) - 180;
+  return (prev + d * k + 360) % 360;
+}
+function onOrient(e) {
+  let h = null;
+  if (typeof e.webkitCompassHeading === "number" && !isNaN(e.webkitCompassHeading)) h = e.webkitCompassHeading; // iOS
+  else if ((e.absolute || e.type === "deviceorientationabsolute") && typeof e.alpha === "number") h = eulerHeading(e.alpha, e.beta, e.gamma); // Android
+  if (h == null) return;
+  compassHeading = smoothAngle(compassHeading, h);
+  updateArrow();
+}
+/* Must be called straight from a tap: iOS only shows its motion-sensor permission prompt then. */
+async function startCompass() {
+  stopCompass();
+  const token = compassToken;
+  compassHeading = null; gpsHeading = null;
+  if (typeof DeviceOrientationEvent === "undefined") return;
+  try {
+    if (typeof DeviceOrientationEvent.requestPermission === "function") {
+      if (await DeviceOrientationEvent.requestPermission() !== "granted") return;
+    }
+  } catch { return; }
+  if (token !== compassToken) return;   // hunt was stopped while the prompt was open
+  window.addEventListener("deviceorientationabsolute", onOrient, true);
+  window.addEventListener("deviceorientation", onOrient, true);
+}
+function stopCompass() {
+  compassToken++;
+  window.removeEventListener("deviceorientationabsolute", onOrient, true);
+  window.removeEventListener("deviceorientation", onOrient, true);
+}
+function updateArrow() {
+  if (!hunt.target || hunt.found || typeof hunt.bearing !== "number") return;
+  const box = $("#huntCompass"), arrow = $("#huntArrow"), txt = $("#huntDir");
+  box.hidden = false;
+  const h = compassHeading ?? gpsHeading;
+  if (h == null) {
+    arrow.style.transform = `rotate(${hunt.bearing}deg)`;
+    txt.textContent = `Head ${cardinal(hunt.bearing)} (north is up)`;
+    return;
+  }
+  const rel = ((hunt.bearing - h + 540) % 360) - 180;   // -180 (left) to 180 (right)
+  arrow.style.transform = `rotate(${rel}deg)`;
+  const ab = Math.abs(rel);
+  txt.textContent = ab < 15 ? "Dead ahead" : ab > 150 ? "Behind you. Turn around."
+    : `${Math.round(ab)}° to your ${rel > 0 ? "right" : "left"}`;
+}
+
 function startHunt(id) {
   const place = allPlaces().find(p => p.id === id);
   if (!place || (typeof place.lat !== "number" && !place.gid)) return;
   if (!navigator.geolocation) { $("#status").textContent = "This browser has no GPS support."; return; }
   stopHunt(true);
-  Object.assign(hunt, { id, target: place, startM: null, refM: null, trend: null, found: false });
+  Object.assign(hunt, { id, target: place, startM: null, refM: null, trend: null, found: false, bearing: null });
+  $("#huntCompass").hidden = true;
+  startCompass();
   $("#hunt").hidden = false;
   $("#huntTarget").textContent = place.name + " · " + place.town;
   $("#huntDist").textContent = "";
@@ -555,6 +646,7 @@ function startHunt(id) {
 function stopHunt(keepPanel) {
   if (hunt.watchId != null) navigator.geolocation.clearWatch(hunt.watchId);
   hunt.watchId = null;
+  stopCompass();
   if (!keepPanel) $("#hunt").hidden = true;
 }
 
@@ -572,12 +664,18 @@ function onHuntPos(pos) {
   const d = metersBetween(here, hunt.target);
   const word = $("#huntWord"), sub = $("#huntSub");
 
+  hunt.bearing = bearingTo(here, hunt.target);
+  gpsHeading = (typeof pos.coords.heading === "number" && !isNaN(pos.coords.heading) && pos.coords.speed > 0.8)
+    ? pos.coords.heading : null;
+  updateArrow();
+
   $("#huntDist").textContent = fmtDist(d);
   if (hunt.startM == null) { hunt.startM = Math.max(d, 50); hunt.refM = d; }
 
   /* Arrived: inside the target's fuzz or your own GPS error, whichever is bigger. */
   if (d <= Math.max(30, Math.min(acc, 60))) {
     hunt.found = true;
+    $("#huntCompass").hidden = true;
     stopHunt(true);
     word.textContent = "You found the beef!";
     word.style.color = "hsl(2 80% 55%)";

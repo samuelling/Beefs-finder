@@ -7,7 +7,7 @@ Find the nearest North Shore roast beef sandwich, and judge it by a weird close-
 - Seeded with the classics: Kelly's (Revere Beach, Saugus), Bill & Bob's (Salem), Nick's (Beverly).
 - Each place has a deep-dive section. Current text is starter notes and needs real tasting notes.
 - Anyone can add a place, and add a close-up photo plus a line about the sandwich.
-- "Hunt this beef" gives a hotter/colder readout as you walk toward a place.
+- "Hunt this beef" gives a hotter/colder readout as you walk toward a place, plus a compass arrow that points at the beef as you turn. On iPhone it asks for motion-sensor permission the first time. If the compass is unavailable it falls back to your direction of travel, then to a plain "head northeast".
 - Optional Google Places features (see below): live ratings and reviews, a "Discover more beef" search, and live coordinates for the hunt.
 
 ## Google Places setup (optional)
